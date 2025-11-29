@@ -1,0 +1,110 @@
+---
+- name: Full CI/CD on Jenkins slave
+  hosts: build_servers
+  become: true
+
+  vars:
+    # Packages to install (Ubuntu/Debian)
+    java_package: openjdk-17-jdk
+    maven_package: maven
+    git_package: git
+    docker_package: docker.io
+
+    # Where on the slave to put the project
+    workspace_dir: /opt/ci-cd-test
+
+    # Git repo info (you can also override with extra-vars from Jenkins)
+    git_repo_url: "https://github.com/Induja1408/CI-CD-Test.git"
+    git_branch: "main"
+
+    # Docker Hub info (image name is <username>/<repository>)
+    dockerhub_username: ""
+    dockerhub_repo: "ci-cd-test"          # just the repo name, no slash
+    dockerhub_password: ""
+
+  pre_tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name:
+          - "{{ java_package }}"
+          - "{{ maven_package }}"
+          - "{{ git_package }}"
+          - "{{ docker_package }}"
+        state: present
+
+    - name: Ensure Docker service is enabled and running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add SSH user to docker group (so docker can run without sudo)
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Install Python docker module (for docker Ansible modules)
+      apt:
+        name: python3-docker
+        state: present
+
+  tasks:
+    - name: Create workspace directory
+      file:
+        path: "{{ workspace_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Checkout Git repository on slave
+      git:
+        repo: "{{ git_repo_url }}"
+        dest: "{{ workspace_dir }}"
+        version: "{{ git_branch }}"
+        force: yes
+
+    - name: List project files (for debugging)
+      command: ls -R
+      args:
+        chdir: "{{ workspace_dir }}"
+      register: list_output
+
+    - name: Show file listing
+      debug:
+        var: list_output.stdout_lines
+
+    - name: Build & test with Maven
+      command: mvn clean test package
+      args:
+        chdir: "{{ workspace_dir }}"
+
+    - name: Build Docker image from project
+      community.docker.docker_image:
+        name: "{{ dockerhub_username }}/{{ dockerhub_repo }}"
+        tag: "latest"
+        build:
+          path: "{{ workspace_dir }}"
+        push: no
+
+    - name: Log in to Docker Hub
+      community.docker.docker_login:
+        username: "{{ dockerhub_username }}"
+        password: "{{ dockerhub_password }}"
+
+    - name: Push Docker image to Docker Hub
+      community.docker.docker_image:
+        name: "{{ dockerhub_username }}/{{ dockerhub_repo }}"
+        tag: "latest"
+        push: yes
+        source: local
+
+    - name: Log out from Docker Hub
+      community.docker.docker_login:
+        state: absent
+        username: "{{ dockerhub_username }}"
