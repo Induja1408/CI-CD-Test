@@ -1,6 +1,6 @@
 ---
 - name: Full CI/CD on Jenkins slave
-  hosts: build_servers
+  hosts: jenkins_slaves
   become: true
 
   vars:
