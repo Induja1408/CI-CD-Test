@@ -2,25 +2,26 @@
 - name: Full CI/CD on Jenkins slave
   hosts: jenkins_slaves
   become: true
+  gather_facts: yes
 
   vars:
     # Packages to install (Ubuntu/Debian)
-    java_package: openjdk-17-jdk
-    maven_package: maven
-    git_package: git
-    docker_package: docker.io
+    java_package: openjdk-17-jdk     # Needed to run Java & Maven builds
+    maven_package: maven             # Build + test Java project
+    git_package: git                 # Clone the repository
+    docker_package: docker.io        # Build + run Docker containers
 
     # Where on the slave to put the project
     workspace_dir: /opt/ci-cd-test
 
-    # Git repo info (you can also override with extra-vars from Jenkins)
+    # Git repo info
     git_repo_url: "https://github.com/Induja1408/CI-CD-Test.git"
     git_branch: "main"
 
     # Docker Hub info (image name is <username>/<repository>)
-    dockerhub_username: ""
-    dockerhub_repo: "ci-cd-test"          # just the repo name, no slash
-    dockerhub_password: ""
+    dockerhub_username: ""           # override from Jenkins or ansible-playbook -e
+    dockerhub_repo: "ci-cd-test"
+    dockerhub_password: ""           # override from Jenkins or vault
 
   pre_tasks:
     - name: Update apt cache
@@ -28,13 +29,14 @@
         update_cache: yes
         cache_valid_time: 3600
 
-    - name: Install base packages
+    - name: Install base packages (Java, Maven, Git, Docker, pip)
       apt:
         name:
           - "{{ java_package }}"
           - "{{ maven_package }}"
           - "{{ git_package }}"
           - "{{ docker_package }}"
+          - python3-pip
         state: present
 
     - name: Ensure Docker service is enabled and running
@@ -49,10 +51,9 @@
         groups: docker
         append: yes
 
-    - name: Install Python docker module (for docker Ansible modules)
-      apt:
-        name: python3-docker
-        state: present
+    - name: Install Docker SDK for Python (for community.docker modules)
+      pip:
+        name: docker
 
   tasks:
     - name: Create workspace directory
@@ -61,6 +62,7 @@
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
+        mode: '0755'
 
     - name: Checkout Git repository on slave
       git:
